@@ -1,0 +1,27 @@
+spring:
+  profiles:
+    active: dev
+
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:apm_demo}
+    username: ${MYSQL_USER:apm}
+    password: ${MYSQL_PASSWORD:1234}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+server:
+  port: ${SERVER_PORT:18080}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
