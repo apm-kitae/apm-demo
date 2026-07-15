@@ -14,6 +14,9 @@ out/
 # Env
 .env
 
+# OTel Java Agent (scripts/download-otel-agent.sh 로 다운로드)
+otel/
+
 # Logs
 *.log
 
