@@ -35,11 +35,19 @@ dependencies {
 	//MySQL 드라이버
 	runtimeOnly 'com.mysql:mysql-connector-j'
 
+	//OTel API — 도메인 attribute/event 계측용. 구현체는 Java Agent가 런타임에 제공하므로 sdk는 넣지 않는다
+	//버전은 Spring Boot BOM이 관리 (io.spring.dependency-management 가 opentelemetry-bom 을 import)
+	implementation 'io.opentelemetry:opentelemetry-api'
+
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
 	//H2 설정 (테스트 인메모리 DB)
 	testImplementation 'com.h2database:h2'
+
+	//OTel SDK 테스트 하니스 — in-memory exporter 로 span attribute/event 를 단언한다
+	//testImplementation 이라 runtimeClasspath 에 sdk 가 들어가지 않아 Agent 와 충돌하지 않는다
+	testImplementation 'io.opentelemetry:opentelemetry-sdk-testing'
 
 	testImplementation 'org.testcontainers:junit-jupiter:1.19.7'
 	testImplementation 'org.testcontainers:mysql:1.19.7'
@@ -47,4 +55,11 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+// plain JAR 을 만들지 않는다.
+// build 를 돌리면 apm-demo-*-plain.jar 가 함께 생기는데, '-' 가 '.' 보다 먼저 정렬돼
+// run-with-agent.sh 의 `ls apm-demo-*.jar | head -1` 이 실행 불가능한 plain JAR 을 고른다.
+tasks.named('jar') {
+	enabled = false
 }
