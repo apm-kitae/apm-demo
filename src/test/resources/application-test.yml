@@ -9,3 +9,11 @@ spring:
     hibernate:
       ddl-auto: create-drop
     open-in-view: false
+
+app:
+  payment:
+    # 목킹을 빠뜨린 테스트가 로컬에 떠 있는 apm-payment 로 나가 실제 결제를 만들지 않도록
+    # 리스너가 없는 포트 1 로 고정해 즉시 연결 거부시킨다
+    base-url: http://localhost:1
+    connect-timeout-ms: 100
+    read-timeout-ms: 100

@@ -30,10 +30,13 @@ public class OrderController {
 
     private final OrderService orderService;
 
-    @Operation(summary = "주문 생성", description = "고객 ID, 상품 ID, 수량, 단가로 주문을 생성. 총액은 서버가 단가 × 수량으로 계산")
+    @Operation(summary = "주문 생성",
+            description = "주문을 PENDING으로 저장한 뒤 결제 서비스를 호출해 CONFIRMED로 확정. 총액은 서버가 단가 × 수량으로 계산")
     @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "주문 생성 성공"),
-            @ApiResponse(responseCode = "400", description = "요청 값 검증 실패")
+            @ApiResponse(responseCode = "201", description = "주문 생성·결제 성공 (CONFIRMED)"),
+            @ApiResponse(responseCode = "400", description = "요청 값 검증 실패"),
+            @ApiResponse(responseCode = "409", description = "결제 호출 중 주문이 취소돼 확정 불가 — 결제만 남는다"),
+            @ApiResponse(responseCode = "502", description = "결제 서비스 호출 실패 — 주문은 FAILED로 남는다")
     })
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -58,11 +61,13 @@ public class OrderController {
         return orderService.findOrders(customerId);
     }
 
-    @Operation(summary = "주문 취소", description = "배송 시작 전(PENDING/CONFIRMED) 주문만 취소 가능")
+    @Operation(summary = "주문 취소",
+            description = "배송 시작 전(PENDING/CONFIRMED) 주문만 취소 가능. 결제가 있으면 결제 취소를 먼저 호출한 뒤 주문을 취소")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "취소 성공"),
             @ApiResponse(responseCode = "404", description = "주문 없음"),
-            @ApiResponse(responseCode = "409", description = "배송 시작 이후라 취소 불가")
+            @ApiResponse(responseCode = "409", description = "배송 시작 이후라 취소 불가"),
+            @ApiResponse(responseCode = "502", description = "결제 취소 호출 실패 — 주문은 취소되지 않는다")
     })
     @PostMapping("/{id}/cancel")
     public OrderResponse cancelOrder(@Parameter(description = "주문 ID") @PathVariable Long id) {

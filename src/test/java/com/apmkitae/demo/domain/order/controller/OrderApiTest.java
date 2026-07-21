@@ -1,9 +1,12 @@
 package com.apmkitae.demo.domain.order.controller;
 
+import com.apmkitae.demo.domain.order.client.PaymentClient;
+import com.apmkitae.demo.domain.order.client.dto.PaymentResult;
 import com.apmkitae.demo.domain.order.dto.OrderCreateRequest;
 import com.apmkitae.demo.domain.order.entity.Order;
 import com.apmkitae.demo.domain.order.entity.OrderStatus;
 import com.apmkitae.demo.domain.order.repository.OrderRepository;
+import com.apmkitae.demo.global.exception.PaymentCallFailedException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,16 +14,25 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * PaymentClient 를 목으로 대체한다. 실제 빈이면 결제 서버로 소켓을 열어
+ * apm-payment 기동 여부에 따라 결과가 달라지고, 떠 있으면 테스트가 실제 결제를 만든다.
+ */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -35,14 +47,18 @@ class OrderApiTest {
     @Autowired
     private OrderRepository orderRepository;
 
+    @MockBean
+    private PaymentClient paymentClient;
+
     @BeforeEach
     void setUp() {
         orderRepository.deleteAll();
     }
 
     @Test
-    @DisplayName("POST /api/orders — 주문을 생성하면 201과 서버가 계산한 총액을 반환한다")
+    @DisplayName("POST /api/orders — 결제가 성공하면 201과 CONFIRMED·결제 ID를 반환한다")
     void createOrder() throws Exception {
+        given(paymentClient.pay(anyLong(), anyLong())).willReturn(new PaymentResult(42L, "COMPLETED"));
         OrderCreateRequest request = new OrderCreateRequest("customer-1", "product-1", 2, 4500L);
 
         mockMvc.perform(post("/api/orders")
@@ -54,7 +70,29 @@ class OrderApiTest {
                 .andExpect(jsonPath("$.productId").value("product-1"))
                 .andExpect(jsonPath("$.quantity").value(2))
                 .andExpect(jsonPath("$.totalPrice").value(9000))
-                .andExpect(jsonPath("$.status").value("PENDING"));
+                .andExpect(jsonPath("$.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.paymentId").value(42));
+    }
+
+    @Test
+    @DisplayName("POST /api/orders — 결제 서비스 호출이 실패하면 502와 에러 메시지를 반환하고 주문은 FAILED로 남는다")
+    void createOrderReturns502WhenPaymentFails() throws Exception {
+        given(paymentClient.pay(anyLong(), anyLong()))
+                .willThrow(new PaymentCallFailedException("결제 서비스 호출에 실패했습니다", new RuntimeException()));
+        OrderCreateRequest request = new OrderCreateRequest("customer-1", "product-1", 2, 4500L);
+
+        mockMvc.perform(post("/api/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.message").isNotEmpty());
+
+        // 결제 실패에도 주문 행은 남아야 한다 — 단일 트랜잭션이면 롤백돼 사라진다
+        assertThat(orderRepository.findAll()).singleElement()
+                .satisfies(order -> {
+                    assertThat(order.getStatus()).isEqualTo(OrderStatus.FAILED);
+                    assertThat(order.getPaymentId()).isNull();
+                });
     }
 
     @Test
@@ -132,7 +170,7 @@ class OrderApiTest {
     }
 
     @Test
-    @DisplayName("POST /api/orders/{id}/cancel — 대기 중인 주문을 취소하면 200과 CANCELLED 상태를 반환한다")
+    @DisplayName("POST /api/orders/{id}/cancel — 결제가 없는 주문을 취소하면 결제 취소를 부르지 않는다")
     void cancelOrder() throws Exception {
         Order saved = orderRepository.save(Order.create("customer-1", "product-1", 1, 4500L));
 
@@ -142,6 +180,21 @@ class OrderApiTest {
 
         Order cancelled = orderRepository.findById(saved.getId()).orElseThrow();
         assertThat(cancelled.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        verify(paymentClient, never()).cancel(anyLong());
+    }
+
+    @Test
+    @DisplayName("POST /api/orders/{id}/cancel — 결제가 있는 주문은 결제 취소도 호출한다")
+    void cancelOrderWithPayment() throws Exception {
+        Order paid = Order.create("customer-1", "product-1", 1, 4500L);
+        paid.confirmPayment(42L);
+        Order saved = orderRepository.save(paid);
+
+        mockMvc.perform(post("/api/orders/{id}/cancel", saved.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        verify(paymentClient).cancel(42L);
     }
 
     @Test
