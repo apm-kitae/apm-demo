@@ -23,8 +23,11 @@ public record OrderResponse(
         @Schema(description = "총액 (단가 × 수량, 원)", example = "9000")
         Long totalPrice,
 
-        @Schema(description = "주문 상태", example = "PENDING")
+        @Schema(description = "주문 상태", example = "CONFIRMED")
         OrderStatus status,
+
+        @Schema(description = "결제 서비스가 발급한 결제 ID. 결제 전이거나 실패한 주문은 null", example = "1")
+        Long paymentId,
 
         @Schema(description = "주문 생성 시각")
         LocalDateTime createdAt
@@ -37,6 +40,7 @@ public record OrderResponse(
                 order.getQuantity(),
                 order.getTotalPrice(),
                 order.getStatus(),
+                order.getPaymentId(),
                 order.getCreatedAt()
         );
     }
